@@ -11,7 +11,7 @@
 <body>
 <div class="app"><aside class="side"><div class="brand"><div class="mark">₹</div>LOAN SMART · RL</div><nav id="nav"></nav><button class="ai" id="aiBtn">✦ Ask AI Assistant</button><div class="bottom"><span>© 2026 RL</span><button id="themeSide">🌙</button></div></aside><div class="content"><header class="top"><div class="mobile-brand"><div class="mark">₹</div><b>LOAN SMART · RL</b></div><div class="actions"><button class="icon" id="theme">🌙</button><button class="profile" id="authTop">Login</button></div></header><main class="main" id="appmain"></main><div class="footer">LOAN SMART · RL • © 2026 RL</div></div></div><div id="modalroot"></div>
 <script>
-const SUPABASE_URL='xamobzozvmiojqlmwulz';const SUPABASE_ANON_KEY='sb_publishable_tlSdbL7QyfQ8VkgWx0mT9Q_3qrjwTWo';
+const SUPABASE_URL='https://xamobzozvmiojqlmwulz.supabase.co';const SUPABASE_ANON_KEY='sb_publishable_tlSdbL7QyfQ8VkgWx0mT9Q_3qrjwTWo';
 const sb=(window.supabase&&SUPABASE_URL.startsWith('http'))?window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY):null;
 const langs=['English','తెలుగు','हिन्दी','தமிழ்','ಕನ್ನಡ','മലയാളം','मराठी','বাংলা','ગુજરાતી','ਪੰਜਾਬੀ','ଓଡ଼ିଆ','অসমীয়া','اردو'];
 let state={tab:'dashboard',dark:localStorage.getItem('ls-theme')==='dark',salary:50000,expenses:20000,existing:0,amount:100000,rate:18,months:12,freq:'monthly',start:new Date().toISOString().slice(0,10),loans:JSON.parse(localStorage.getItem('ls-loans')||'[]'),saved:JSON.parse(localStorage.getItem('ls-saved')||'[]'),user:null,language:localStorage.getItem('ls-lang')||'English'};
