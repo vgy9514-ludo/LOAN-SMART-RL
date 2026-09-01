@@ -68,7 +68,7 @@ let state={
  expenses:(Number(localStorage.getItem('ls-expenses')) >= 0 && localStorage.getItem('ls-expenses') !== null ? Number(localStorage.getItem('ls-expenses')) : 20000),
  existing:(Number(localStorage.getItem('ls-existing')) >= 0 && localStorage.getItem('ls-existing') !== null ? Number(localStorage.getItem('ls-existing')) : 0),
  amount:100000,rate:18,months:12,freq:'monthly',loanType:'personal',
- start:new Date().toISOString().slice(0,10),loans:[],saved:[],user:null,language:localStorage.getItem('ls-lang')||'English',
+ start:(()=>{const d=new Date();d.setMonth(d.getMonth()+1);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`})(),loans:[],saved:[],user:null,language:localStorage.getItem('ls-lang')||'English',
  editingLoanId:null,loaded:false
 };
 const tr=k=>(T[state.language]||base)[k]||base[k]||k;
@@ -77,7 +77,9 @@ const dateFmt=d=>d?new Intl.DateTimeFormat(state.language==='English'?'en-IN':un
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function emi(P,annual,months){P=Number(P)||0;months=Number(months)||0;if(!P||months<=0)return 0;let r=(Number(annual)||0)/12/100;if(r===0)return P/months;return P*r*Math.pow(1+r,months)/(Math.pow(1+r,months)-1)}
 function schedule(P,annual,months,start,freq='monthly'){
- return paymentSchedule(P,annual,months,firstPaymentDate(start,freq),freq);
+ // `start` is the actual first/next payment date everywhere in the app.
+ // Do not add another month here; this is the single source of truth.
+ return paymentSchedule(P,annual,months,start,freq);
 }
 const LOAN_TYPES=[
  {id:'car',label:'🚗 Car'},
@@ -318,7 +320,7 @@ async function cloudSaveCalc(x){
  if(error)console.warn(error);
 }
 function addLoan(existing=null){
- const l=existing||{id:crypto.randomUUID(),name:`${loanTypeLabel(state.loanType)} · ${money(state.amount)}`,loan_type:state.loanType||'personal',amount:Number(state.amount)||0,rate:Number(state.rate)||0,months:Number(state.months)||1,payment:payment(),frequency:state.freq,next_payment:firstPaymentDate(state.start,state.freq),remaining:Number(state.amount)||0,status:'active'};
+ const l=existing||{id:crypto.randomUUID(),name:`${loanTypeLabel(state.loanType)} · ${money(state.amount)}`,loan_type:state.loanType||'personal',amount:Number(state.amount)||0,rate:Number(state.rate)||0,months:Number(state.months)||1,payment:payment(),frequency:state.freq,next_payment:state.start,remaining:Number(state.amount)||0,status:'active'};
  if(existing){const i=state.loans.findIndex(x=>x.id===existing.id);if(i>=0)state.loans[i]=l}else state.loans.unshift(l);
  render();cloudUpsertLoan(l);go('loans');
 }
