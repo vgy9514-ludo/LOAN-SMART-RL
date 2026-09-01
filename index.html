@@ -64,8 +64,10 @@ for(const l of LANGS){if(!T[l])T[l]=Object.assign({},base);else T[l]=Object.assi
 
 let state={
  tab:'dashboard',dark:localStorage.getItem('ls-theme')==='dark',
- salary:Number(localStorage.getItem('ls-salary')||50000),expenses:Number(localStorage.getItem('ls-expenses')||20000),
- existing:Number(localStorage.getItem('ls-existing')||0),amount:100000,rate:18,months:12,freq:'monthly',
+ salary:(Number(localStorage.getItem('ls-salary')) > 0 ? Number(localStorage.getItem('ls-salary')) : 50000),
+ expenses:(Number(localStorage.getItem('ls-expenses')) >= 0 && localStorage.getItem('ls-expenses') !== null ? Number(localStorage.getItem('ls-expenses')) : 20000),
+ existing:(Number(localStorage.getItem('ls-existing')) >= 0 && localStorage.getItem('ls-existing') !== null ? Number(localStorage.getItem('ls-existing')) : 0),
+ amount:100000,rate:18,months:12,freq:'monthly',
  start:new Date().toISOString().slice(0,10),loans:[],saved:[],user:null,language:localStorage.getItem('ls-lang')||'English',
  editingLoanId:null,loaded:false
 };
@@ -75,11 +77,22 @@ const dateFmt=d=>d?new Intl.DateTimeFormat(state.language==='English'?'en-IN':un
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function emi(P,annual,months){P=Number(P)||0;months=Number(months)||0;if(!P||months<=0)return 0;let r=(Number(annual)||0)/12/100;if(r===0)return P/months;return P*r*Math.pow(1+r,months)/(Math.pow(1+r,months)-1)}
 function schedule(P,annual,months,start,freq='monthly'){
- P=Number(P)||0;months=Number(months)||0;let n=freq==='weekly'?Math.max(1,Math.round(months*52/12)):months;
+ P=Number(P)||0;months=Number(months)||0;
+ let n=freq==='weekly'?Math.max(1,Math.round(months*52/12)):months;
  let rate=freq==='weekly'?(Number(annual)||0)/52/100:(Number(annual)||0)/12/100;
  let payment=freq==='weekly'?((rate===0)?P/n:P*rate*Math.pow(1+rate,n)/(Math.pow(1+rate,n)-1)):emi(P,annual,months);
  let bal=P,arr=[];
- for(let i=1;i<=n;i++){let interest=bal*rate,principal=Math.min(bal,Math.max(0,payment-interest)),pay=principal+interest;bal=Math.max(0,bal-principal);let d=new Date((start||new Date().toISOString().slice(0,10))+'T00:00:00');if(freq==='weekly')d.setDate(d.getDate()+(i-1)*7);else d.setMonth(d.getMonth()+i-1);arr.push({n:i,date:d.toISOString().slice(0,10),payment:pay,principal,interest,balance:bal,status:'pending'})}
+ const base=(start||new Date().toISOString().slice(0,10)).split('-').map(Number);
+ const baseYear=base[0],baseMonth=base[1]-1,baseDay=base[2];
+ for(let i=1;i<=n;i++){
+  let interest=bal*rate,principal=Math.min(bal,Math.max(0,payment-interest)),pay=principal+interest;
+  bal=Math.max(0,bal-principal);
+  let d=new Date(baseYear,baseMonth,baseDay);
+  if(freq==='weekly')d.setDate(d.getDate()+i*7);
+  else d.setMonth(d.getMonth()+i);
+  const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
+  arr.push({n:i,date:`${y}-${m}-${day}`,payment:pay,principal,interest,balance:bal,status:'pending'});
+ }
  return arr;
 }
 function affordability(s,e,x){let a=Math.max(0,(Number(s)||0)-(Number(e)||0)-(Number(x)||0));return{available:a,comfortable:a*.30,higher:a*.40,risky:a*.50}}
@@ -87,7 +100,18 @@ function cap(){return affordability(state.salary,state.expenses,state.existing)}
 function currentRows(){return schedule(state.amount,state.rate,state.months,state.start,state.freq)}
 function payment(){let r=currentRows();return r[0]?.payment||0}
 function total(){return currentRows().reduce((a,r)=>a+r.payment,0)}
-function dueClass(date){if(!date)return '';let d=(new Date(date+'T00:00:00')-new Date(new Date().toISOString().slice(0,10)+'T00:00:00'))/86400000;return d<0?'overdue':d<=3?'soon':''}
+function dateOnlyValue(value){
+ if(!value)return null;
+ const [y,m,d]=String(value).slice(0,10).split('-').map(Number);
+ if(!y||!m||!d)return null;
+ return Date.UTC(y,m-1,d);
+}
+function dueClass(date){
+ const target=dateOnlyValue(date),today=dateOnlyValue(new Date().toISOString().slice(0,10));
+ if(target===null||today===null)return '';
+ const d=(target-today)/86400000;
+ return d<0?'overdue':d<=3?'soon':'';
+}
 function statusOf(l){if(l.status==='completed')return 'completed';let c=dueClass(l.next_payment);return c==='overdue'?'overdue':'pending'}
 function persistPrefs(){localStorage.setItem('ls-theme',state.dark?'dark':'light');localStorage.setItem('ls-lang',state.language);localStorage.setItem('ls-salary',state.salary);localStorage.setItem('ls-expenses',state.expenses);localStorage.setItem('ls-existing',state.existing)}
 function toast(message,error=false){let root=document.getElementById('modalroot');root.innerHTML=`<div class="overlay" onclick="closeModal()"><div class="modal" onclick="event.stopPropagation()"><div class="msg ${error?'error':''}">${esc(message)}</div><div style="text-align:right;margin-top:12px"><button class="btn primary" onclick="closeModal()">${tr('close')}</button></div></div></div>`}
@@ -148,7 +172,15 @@ function calculator(){
    This fixes the Backspace/Delete digit cancellation bug. */
 function bindCalculator(){
  const ids=['salary','expenses','existing','amount','rate','months','start'];
- ids.forEach(id=>{const e=document.getElementById(id);if(!e)return;e.addEventListener('input',()=>{state[id]=id==='start'?e.value:Number(e.value);persistPrefs();updateCalcResult()})});
+ ids.forEach(id=>{
+  const e=document.getElementById(id);if(!e)return;
+  e.addEventListener('input',()=>{
+   if(id==='start') state[id]=e.value;
+   else state[id]=e.value===''?0:Number(e.value);
+   persistPrefs();
+   updateCalcResult();
+  });
+ });
  document.getElementById('monthlyBtn')?.addEventListener('click',()=>{state.freq='monthly';render()});
  document.getElementById('weeklyBtn')?.addEventListener('click',()=>{state.freq='weekly';render()});
  document.getElementById('saveCalcBtn')?.addEventListener('click',saveCalc);
@@ -289,7 +321,12 @@ async function markPaid(id){
  if(sb&&state.user){const {error}=await sb.from('payments').insert({loan_id:l.id,user_id:state.user.id,payment_date:l.next_payment,amount:l.payment,principal:first?.principal||0,interest:first?.interest||0,status:'paid'});if(error){toast(error.message,true);return}}
  l.remaining=newRemaining;l.next_payment=nextDate(l.next_payment,l.frequency);if(l.remaining<=0.01)l.status='completed';await cloudUpsertLoan(l);render();
 }
-function nextDate(d,f){let x=new Date(d+'T00:00:00');if(f==='weekly')x.setDate(x.getDate()+7);else x.setMonth(x.getMonth()+1);return x.toISOString().slice(0,10)}
+function nextDate(d,f){
+ const [y,m,day]=String(d).slice(0,10).split('-').map(Number);
+ const x=new Date(y,m-1,day);
+ if(f==='weekly')x.setDate(x.getDate()+7);else x.setMonth(x.getMonth()+1);
+ return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+}
 async function deleteSaved(id){
  if(!confirm(tr('deleteConfirm')))return;state.saved=state.saved.filter(x=>(x.id||x.local_id)!==id);render();
  if(sb&&state.user&&id){const {error}=await sb.from('saved_calculations').delete().eq('id',id);if(error)console.warn(error)}
