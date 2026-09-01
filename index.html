@@ -67,7 +67,7 @@ let state={
  salary:(Number(localStorage.getItem('ls-salary')) > 0 ? Number(localStorage.getItem('ls-salary')) : 50000),
  expenses:(Number(localStorage.getItem('ls-expenses')) >= 0 && localStorage.getItem('ls-expenses') !== null ? Number(localStorage.getItem('ls-expenses')) : 20000),
  existing:(Number(localStorage.getItem('ls-existing')) >= 0 && localStorage.getItem('ls-existing') !== null ? Number(localStorage.getItem('ls-existing')) : 0),
- amount:100000,rate:18,months:12,freq:'monthly',
+ amount:100000,rate:18,months:12,freq:'monthly',loanType:'personal',
  start:new Date().toISOString().slice(0,10),loans:[],saved:[],user:null,language:localStorage.getItem('ls-lang')||'English',
  editingLoanId:null,loaded:false
 };
@@ -77,21 +77,40 @@ const dateFmt=d=>d?new Intl.DateTimeFormat(state.language==='English'?'en-IN':un
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 function emi(P,annual,months){P=Number(P)||0;months=Number(months)||0;if(!P||months<=0)return 0;let r=(Number(annual)||0)/12/100;if(r===0)return P/months;return P*r*Math.pow(1+r,months)/(Math.pow(1+r,months)-1)}
 function schedule(P,annual,months,start,freq='monthly'){
+ return paymentSchedule(P,annual,months,firstPaymentDate(start,freq),freq);
+}
+const LOAN_TYPES=[
+ {id:'car',label:'🚗 Car'},
+ {id:'bike',label:'🏍️ Bike'},
+ {id:'home',label:'🏠 Home'},
+ {id:'education',label:'🎓 Education'},
+ {id:'personal',label:'💼 Personal'},
+ {id:'medical',label:'🏥 Medical'},
+ {id:'consumer',label:'📱 Consumer/Electronics'},
+ {id:'business',label:'🏦 Business'},
+ {id:'other',label:'✏️ Other / Custom'}
+];
+function loanTypeLabel(id){return (LOAN_TYPES.find(x=>x.id===id)||LOAN_TYPES.find(x=>x.id==='personal')).label}
+function firstPaymentDate(start,freq){
+ const [y,m,d]=String(start||new Date().toISOString().slice(0,10)).slice(0,10).split('-').map(Number);
+ const x=new Date(y,m-1,d);
+ if(freq==='weekly')x.setDate(x.getDate()+7);else x.setMonth(x.getMonth()+1);
+ return `${x.getFullYear()}-${String(x.getMonth()+1).padStart(2,'0')}-${String(x.getDate()).padStart(2,'0')}`;
+}
+function paymentSchedule(P,annual,months,firstPayment,freq='monthly'){
  P=Number(P)||0;months=Number(months)||0;
  let n=freq==='weekly'?Math.max(1,Math.round(months*52/12)):months;
  let rate=freq==='weekly'?(Number(annual)||0)/52/100:(Number(annual)||0)/12/100;
  let payment=freq==='weekly'?((rate===0)?P/n:P*rate*Math.pow(1+rate,n)/(Math.pow(1+rate,n)-1)):emi(P,annual,months);
  let bal=P,arr=[];
- const base=(start||new Date().toISOString().slice(0,10)).split('-').map(Number);
- const baseYear=base[0],baseMonth=base[1]-1,baseDay=base[2];
- for(let i=1;i<=n;i++){
+ const [y0,m0,d0]=String(firstPayment||new Date().toISOString().slice(0,10)).slice(0,10).split('-').map(Number);
+ for(let i=0;i<n;i++){
   let interest=bal*rate,principal=Math.min(bal,Math.max(0,payment-interest)),pay=principal+interest;
   bal=Math.max(0,bal-principal);
-  let d=new Date(baseYear,baseMonth,baseDay);
-  if(freq==='weekly')d.setDate(d.getDate()+i*7);
-  else d.setMonth(d.getMonth()+i);
+  let d=new Date(y0,m0-1,d0);
+  if(freq==='weekly')d.setDate(d.getDate()+i*7);else d.setMonth(d.getMonth()+i);
   const y=d.getFullYear(),m=String(d.getMonth()+1).padStart(2,'0'),day=String(d.getDate()).padStart(2,'0');
-  arr.push({n:i,date:`${y}-${m}-${day}`,payment:pay,principal,interest,balance:bal,status:'pending'});
+  arr.push({n:i+1,date:`${y}-${m}-${day}`,payment:pay,principal,interest,balance:bal,status:'pending'});
  }
  return arr;
 }
@@ -137,7 +156,7 @@ function dashboard(){
 function loanRows(limit=999){
  if(!state.loans.length)return `<div class="empty">${tr('noLoans')}<br><br><button class="btn primary" onclick="go('calculator')">${tr('addLoan')}</button></div>`;
  return state.loans.slice(0,limit).map(l=>{let dc=dueClass(l.next_payment),st=statusOf(l);return `<div class="loan">
- <div class="loanicon">₹</div><div><strong>${esc(l.name||('Loan · '+money(l.amount)))}</strong><span>${money(l.amount)} · ${l.rate}% · ${esc(l.frequency)}</span><span>${tr('remaining')}: ${money(l.remaining)}</span></div>
+ <div class="loanicon">₹</div><div><strong>${esc(l.name||('Loan · '+money(l.amount)))}</strong><span>${loanTypeLabel(l.loan_type||'personal')} · ${money(l.amount)} · ${l.rate}% · ${esc(l.frequency)}</span><span>${tr('remaining')}: ${money(l.remaining)}</span></div>
  <div class="due ${dc}">${dc==='soon'?tr('dueSoon'):dc==='overdue'?tr('overdue'):tr('next')}<b>${dateFmt(l.next_payment)}</b></div>
  <div class="loan-pay"><strong>${money(l.payment)}</strong><span> / ${l.frequency==='monthly'?tr('monthly'):tr('weekly')}</span><div class="actions2" style="margin-top:6px">
  <button class="btn" onclick="openLoanDetails('${l.id}')">${tr('history')}</button><button class="btn" onclick="openDocuments('${l.id}')">${tr('documents')}</button><button class="btn" onclick="editLoan('${l.id}')">${tr('edit')}</button><button class="btn danger" onclick="deleteLoan('${l.id}')">${tr('delete')}</button></div></div></div>`}).join('');
@@ -156,7 +175,8 @@ function calculator(){
  <label class="field">${tr('existing')}<input id="existing" type="number" min="0" value="${state.existing}"></label>
  <label class="field">${tr('amount')}<input id="amount" type="number" min="0" value="${state.amount}"></label>
  <label class="field">${tr('rate')}<input id="rate" type="number" step=".1" min="0" value="${state.rate}"></label>
- <label class="field">${tr('months')}<input id="months" type="number" min="1" value="${state.months}"></label></div>
+ <label class="field">${tr('months')}<input id="months" type="number" min="1" value="${state.months}"></label>
+ <label class="field">Loan purpose / type<select id="loanType">${LOAN_TYPES.map(x=>`<option value="${x.id}" ${state.loanType===x.id?'selected':''}>${x.label}</option>`).join('')}</select></label></div>
  <div class="toggle"><button class="${state.freq==='monthly'?'sel':''}" id="monthlyBtn">${tr('monthly')}</button><button class="${state.freq==='weekly'?'sel':''}" id="weeklyBtn">${tr('weekly')}</button></div>
  <label class="field">${tr('next')}<input id="start" type="date" value="${state.start}"></label>
  <div style="display:flex;gap:8px;margin-top:15px;flex-wrap:wrap"><button class="btn" id="saveCalcBtn">☆ ${tr('save')}</button><button class="btn primary" id="addLoanBtn">+ ${tr('add')}</button></div></section>
@@ -171,11 +191,11 @@ function calculator(){
 /* Important: inputs are bound without re-rendering on every keypress.
    This fixes the Backspace/Delete digit cancellation bug. */
 function bindCalculator(){
- const ids=['salary','expenses','existing','amount','rate','months','start'];
+ const ids=['salary','expenses','existing','amount','rate','months','start','loanType'];
  ids.forEach(id=>{
   const e=document.getElementById(id);if(!e)return;
   e.addEventListener('input',()=>{
-   if(id==='start') state[id]=e.value;
+   if(id==='start'||id==='loanType') state[id]=e.value;
    else state[id]=e.value===''?0:Number(e.value);
    persistPrefs();
    updateCalcResult();
@@ -208,7 +228,7 @@ function reports(){
  return `<div class="title"><p class="eyebrow">REPORTS</p><h1>${tr('reportsTitle')}</h1><p>${tr('reportHint')}</p></div>
  <section class="panel"><div class="grid3"><div class="stat"><span>${tr('totalLoans')}</span><b>${state.loans.length}</b></div><div class="stat"><span>${tr('activeLoans')}</span><b>${state.loans.filter(l=>statusOf(l)!=='completed').length}</b></div><div class="stat"><span>${tr('totalBalance')}</span><b>${money(state.loans.reduce((a,l)=>a+(Number(l.remaining)||0),0))}</b></div></div>
  <div class="toolbar" style="margin-top:18px"><button class="btn primary" onclick="exportAllXlsx()">${tr('excel')}</button><button class="btn" onclick="exportAllCSV()">${tr('csv')}</button><button class="btn" onclick="exportAllPDF()">${tr('pdf')}</button></div></section>
- <section class="panel"><div class="tablewrap"><table><thead><tr><th>${tr('number')}</th><th>${tr('loans')}</th><th>${tr('amount')}</th><th>${tr('payment')}</th><th>${tr('date')}</th><th>${tr('remaining')}</th><th>${tr('status')}</th></tr></thead><tbody>${state.loans.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.name)}</td><td class="money">${money(l.amount)}</td><td class="money">${money(l.payment)}</td><td>${dateFmt(l.next_payment)}</td><td class="money">${money(l.remaining)}</td><td>${statusBadge(statusOf(l))}</td></tr>`).join('')}</tbody></table></div></section>`;
+ <section class="panel"><div class="tablewrap"><table><thead><tr><th>${tr('number')}</th><th>${tr('loans')}</th><th>Loan Type</th><th>${tr('amount')}</th><th>${tr('payment')}</th><th>${tr('date')}</th><th>${tr('remaining')}</th><th>${tr('status')}</th></tr></thead><tbody>${state.loans.map((l,i)=>`<tr><td>${i+1}</td><td>${esc(l.name)}</td><td>${esc(loanTypeLabel(l.loan_type||'personal'))}</td><td class="money">${money(l.amount)}</td><td class="money">${money(l.payment)}</td><td>${dateFmt(l.next_payment)}</td><td class="money">${money(l.remaining)}</td><td>${statusBadge(statusOf(l))}</td></tr>`).join('')}</tbody></table></div></section>`;
 }
 function statusBadge(s){return `<span class="status ${s==='overdue'?'overdue':s==='pending'?'pending':''}">${tr(s==='completed'?'completed':s==='overdue'?'overdue':'pending')}</span>`}
 function settings(){
@@ -286,7 +306,7 @@ async function logout(){if(sb)await sb.auth.signOut();state.user=null;state.loan
 async function sync(){
  if(!sb||!state.user)return;
  const [a,b]=await Promise.all([sb.from('loans').select('*').order('created_at',{ascending:false}),sb.from('saved_calculations').select('*').order('created_at',{ascending:false})]);
- if(a.error)console.warn(a.error);if(b.error)console.warn(b.error);state.loans=a.data||[];state.saved=b.data||[];render();
+ if(a.error)console.warn(a.error);if(b.error)console.warn(b.error);state.loans=(a.data||[]).map(l=>({...l,loan_type:l.loan_type||'personal'}));state.saved=b.data||[];render();
 }
 function saveCalc(){
  const x={local_id:crypto.randomUUID(),title:`${money(state.amount)} · ${state.rate}% · ${state.months} ${tr('months')}`,payment:payment(),created_at:new Date().toISOString(),payload:{amount:state.amount,rate:state.rate,months:state.months,freq:state.freq,start:state.start,salary:state.salary,expenses:state.expenses,existing:state.existing}};
@@ -298,26 +318,26 @@ async function cloudSaveCalc(x){
  if(error)console.warn(error);
 }
 function addLoan(existing=null){
- const l=existing||{id:crypto.randomUUID(),name:`${state.freq==='monthly'?tr('monthly'):tr('weekly')} loan · ${money(state.amount)}`,amount:Number(state.amount)||0,rate:Number(state.rate)||0,months:Number(state.months)||1,payment:payment(),frequency:state.freq,next_payment:state.start,remaining:Number(state.amount)||0,status:'active'};
+ const l=existing||{id:crypto.randomUUID(),name:`${loanTypeLabel(state.loanType)} · ${money(state.amount)}`,loan_type:state.loanType||'personal',amount:Number(state.amount)||0,rate:Number(state.rate)||0,months:Number(state.months)||1,payment:payment(),frequency:state.freq,next_payment:firstPaymentDate(state.start,state.freq),remaining:Number(state.amount)||0,status:'active'};
  if(existing){const i=state.loans.findIndex(x=>x.id===existing.id);if(i>=0)state.loans[i]=l}else state.loans.unshift(l);
  render();cloudUpsertLoan(l);go('loans');
 }
 async function cloudUpsertLoan(l){
  if(!sb||!state.user)return;
- const row={id:l.id,user_id:state.user.id,name:l.name,amount:l.amount,rate:l.rate,months:l.months,payment:l.payment,frequency:l.frequency,next_payment:l.next_payment,remaining:l.remaining,status:l.status};
+ const row={id:l.id,user_id:state.user.id,name:l.name,loan_type:l.loan_type||'personal',amount:l.amount,rate:l.rate,months:l.months,payment:l.payment,frequency:l.frequency,next_payment:l.next_payment,remaining:l.remaining,status:l.status};
  const {error}=await sb.from('loans').upsert(row);if(error)console.warn(error);
 }
 function editLoan(id){
  const l=state.loans.find(x=>x.id===id);if(!l)return;state.editingLoanId=id;
  document.getElementById('modalroot').innerHTML=`<div class="overlay"><div class="modal"><div class="modalhead"><div><b>${tr('editLoan')}</b></div><button class="btn" onclick="closeModal()">×</button></div>
- <form id="loanEditForm"><label>${tr('username')} / Loan name<input id="elname" value="${esc(l.name)}"></label><label>${tr('amount')}<input id="elamount" type="number" value="${l.amount}"></label><label>${tr('rate')}<input id="elrate" type="number" step=".1" value="${l.rate}"></label><label>${tr('months')}<input id="elmonths" type="number" value="${l.months}"></label><label>${tr('next')}<input id="eldate" type="date" value="${l.next_payment}"></label><label>${tr('remaining')}<input id="elremaining" type="number" value="${l.remaining}"></label><label>${tr('loanStatus')}<select id="elstatus"><option value="active">${tr('active')}</option><option value="completed">${tr('completed')}</option></select></label><button class="btn primary">${tr('saveLoan')}</button></form></div></div>`;
+ <form id="loanEditForm"><label>${tr('username')} / Loan name<input id="elname" value="${esc(l.name)}"></label><label>Loan purpose / type<select id="eltype">${LOAN_TYPES.map(x=>`<option value="${x.id}" ${x.id===(l.loan_type||'personal')?'selected':''}>${x.label}</option>`).join('')}</select></label><label>${tr('amount')}<input id="elamount" type="number" value="${l.amount}"></label><label>${tr('rate')}<input id="elrate" type="number" step=".1" value="${l.rate}"></label><label>${tr('months')}<input id="elmonths" type="number" value="${l.months}"></label><label>${tr('next')}<input id="eldate" type="date" value="${l.next_payment}"></label><label>${tr('remaining')}<input id="elremaining" type="number" value="${l.remaining}"></label><label>${tr('loanStatus')}<select id="elstatus"><option value="active">${tr('active')}</option><option value="completed">${tr('completed')}</option></select></label><button class="btn primary">${tr('saveLoan')}</button></form></div></div>`;
  document.getElementById('elstatus').value=l.status==='completed'?'completed':'active';
- document.getElementById('loanEditForm').onsubmit=async e=>{e.preventDefault();l.name=document.getElementById('elname').value;l.amount=Number(document.getElementById('elamount').value);l.rate=Number(document.getElementById('elrate').value);l.months=Number(document.getElementById('elmonths').value);l.next_payment=document.getElementById('eldate').value;l.remaining=Number(document.getElementById('elremaining').value);l.status=document.getElementById('elstatus').value;l.payment=emi(l.amount,l.rate,l.months);await cloudUpsertLoan(l);closeModal();render()};
+ document.getElementById('loanEditForm').onsubmit=async e=>{e.preventDefault();l.name=document.getElementById('elname').value;l.loan_type=document.getElementById('eltype').value;l.amount=Number(document.getElementById('elamount').value);l.rate=Number(document.getElementById('elrate').value);l.months=Number(document.getElementById('elmonths').value);l.next_payment=document.getElementById('eldate').value;l.remaining=Number(document.getElementById('elremaining').value);l.status=document.getElementById('elstatus').value;l.payment=emi(l.amount,l.rate,l.months);await cloudUpsertLoan(l);closeModal();render()};
 }
 async function deleteLoan(id){if(!confirm(tr('deleteConfirm')))return;state.loans=state.loans.filter(l=>l.id!==id);render();if(sb&&state.user){const {error}=await sb.from('loans').delete().eq('id',id);if(error)console.warn(error)}}
 async function markPaid(id){
  const l=state.loans.find(x=>x.id===id);if(!l)return;if(!confirm(tr('markPaidConfirm')))return;
- const rows=schedule(l.amount,l.rate,l.months,l.next_payment,l.frequency),first=rows[0],newRemaining=Math.max(0,(Number(l.remaining)||0)-(Number(first?.principal)||0));
+ const rows=paymentSchedule(l.amount,l.rate,l.months,l.next_payment,l.frequency),first=rows[0],newRemaining=Math.max(0,(Number(l.remaining)||0)-(Number(first?.principal)||0));
  if(sb&&state.user){const {error}=await sb.from('payments').insert({loan_id:l.id,user_id:state.user.id,payment_date:l.next_payment,amount:l.payment,principal:first?.principal||0,interest:first?.interest||0,status:'paid'});if(error){toast(error.message,true);return}}
  l.remaining=newRemaining;l.next_payment=nextDate(l.next_payment,l.frequency);if(l.remaining<=0.01)l.status='completed';await cloudUpsertLoan(l);render();
 }
@@ -350,14 +370,16 @@ function askAI(){
 }
 function openReport(){go('reports')}
 function rowsForLoan(l){
- return schedule(l.amount,l.rate,l.months,l.next_payment,l.frequency).map((r,i)=>{r.status=i===0?(statusOf(l)==='overdue'?'overdue':'pending'):'pending';return r});
+ const paid=new Set();
+ const base=paymentSchedule(l.amount,l.rate,l.months,l.next_payment,l.frequency);
+ return base.map((r,i)=>{r.loan_type=l.loan_type||'personal';r.status=i===0?(statusOf(l)==='overdue'?'overdue':'pending'):'pending';return r});
 }
 function exportCurrentXlsx(){
  const rows=currentRows().map(r=>({[tr('number')]:r.n,[tr('date')]:new Date(r.date+'T00:00:00'),[tr('payment')]:r.payment,[tr('principal')]:r.principal,[tr('interest')]:r.interest,[tr('balance')]:r.balance,[tr('status')]:tr('pending')}));
  exportXlsx(rows,'loan-smart-payment-schedule.xlsx',true);
 }
 function exportAllXlsx(){
- let rows=[];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>rows.push({[tr('number')]:r.n,[tr('loans')]:l.name,[tr('date')]:new Date(r.date+'T00:00:00'),[tr('payment')]:r.payment,[tr('principal')]:r.principal,[tr('interest')]:r.interest,[tr('balance')]:r.balance,[tr('status')]:tr(r.status==='overdue'?'overdue':'pending')})));
+ let rows=[];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>rows.push({[tr('number')]:r.n,[tr('loans')]:l.name,['Loan Type']:loanTypeLabel(l.loan_type||'personal'),[tr('date')]:new Date(r.date+'T00:00:00'),[tr('payment')]:r.payment,[tr('principal')]:r.principal,[tr('interest')]:r.interest,[tr('balance')]:r.balance,[tr('status')]:tr(r.status==='overdue'?'overdue':'pending')})));
  exportXlsx(rows,'loan-smart-report.xlsx',true);
 }
 function exportXlsx(rows,name,formatted){
@@ -370,13 +392,13 @@ function exportXlsx(rows,name,formatted){
 }
 function csvEscape(v){return `"${String(v??'').replace(/"/g,'""')}"`}
 function exportCurrentCSV(){let rows=currentRows();let csv=[['No','Date','Payment','Principal','Interest','Balance','Status'],...rows.map(r=>[r.n,r.date,r.payment.toFixed(2),r.principal.toFixed(2),r.interest.toFixed(2),r.balance.toFixed(2),tr('pending')])].map(r=>r.map(csvEscape).join(',')).join('\n');downloadBlob(csv,'loan-smart-payment-schedule.csv','text/csv')}
-function exportAllCSV(){let out=[['No','Loan','Date','Payment','Principal','Interest','Balance','Status']];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>out.push([r.n,l.name,r.date,r.payment.toFixed(2),r.principal.toFixed(2),r.interest.toFixed(2),r.balance.toFixed(2),tr(r.status==='overdue'?'overdue':'pending')])));downloadBlob(out.map(r=>r.map(csvEscape).join(',')).join('\n'),'loan-smart-report.csv','text/csv')}
+function exportAllCSV(){let out=[['No','Loan','Loan Type','Date','Payment','Principal','Interest','Balance','Status']];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>out.push([r.n,l.name,loanTypeLabel(l.loan_type||'personal'),r.date,r.payment.toFixed(2),r.principal.toFixed(2),r.interest.toFixed(2),r.balance.toFixed(2),tr(r.status==='overdue'?'overdue':'pending')])));downloadBlob(out.map(r=>r.map(csvEscape).join(',')).join('\n'),'loan-smart-report.csv','text/csv')}
 function downloadBlob(text,name,type){let a=document.createElement('a');a.href=URL.createObjectURL(new Blob([text],{type}));a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
 function exportCurrentPDF(){exportPDF('LOAN SMART · RL',currentRows().map(r=>[r.n,dateFmt(r.date),money(r.payment),money(r.principal),money(r.interest),money(r.balance),tr('pending')]))}
-function exportAllPDF(){let rows=[];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>rows.push([l.name,dateFmt(r.date),money(r.payment),money(r.principal),money(r.interest),money(r.balance),tr(r.status==='overdue'?'overdue':'pending')])));exportPDF('LOAN SMART · RL — '+tr('reports'),rows)}
+function exportAllPDF(){let rows=[];state.loans.forEach(l=>rowsForLoan(l).forEach(r=>rows.push([l.name,loanTypeLabel(l.loan_type||'personal'),dateFmt(r.date),money(r.payment),money(r.principal),money(r.interest),money(r.balance),tr(r.status==='overdue'?'overdue':'pending')])));exportPDF('LOAN SMART · RL — '+tr('reports'),rows)}
 function exportPDF(title,rows){
  if(!window.jspdf){toast('PDF library unavailable.',true);return}const {jsPDF}=window.jspdf;const doc=new jsPDF({orientation:'landscape'});doc.setFontSize(16);doc.text(title,14,16);doc.setFontSize(9);doc.text(new Date().toLocaleString(),14,23);let y=32;
- const headers=rows[0]&&rows[0].length===7?(title.includes('reports')?['Loan',tr('date'),tr('payment'),tr('principal'),tr('interest'),tr('balance'),tr('status')]:['#',tr('date'),tr('payment'),tr('principal'),tr('interest'),tr('balance'),tr('status')]):[];
+ const headers=rows[0]?(rows[0].length===8?['Loan','Loan Type',tr('date'),tr('payment'),tr('principal'),tr('interest'),tr('balance'),tr('status')]:rows[0].length===7?(title.includes('reports')?['Loan',tr('date'),tr('payment'),tr('principal'),tr('interest'),tr('balance'),tr('status')]:['#',tr('date'),tr('payment'),tr('principal'),tr('interest'),tr('balance'),tr('status')]):[]):[];
  doc.setFont(undefined,'bold');headers.forEach((h,i)=>doc.text(String(h),14+i*39,y));doc.setFont(undefined,'normal');
  let yy=y+7;rows.forEach((r,ri)=>{if(yy>190){doc.addPage();yy=16;doc.setFont(undefined,'bold');headers.forEach((h,i)=>doc.text(String(h),14+i*39,yy));doc.setFont(undefined,'normal');yy+=7}r.forEach((v,i)=>doc.text(String(v).slice(0,22),14+i*39,yy));yy+=6});doc.save('loan-smart-statement.pdf');
 }
@@ -406,7 +428,16 @@ function openLoanDetails(id){
  <h3 style="margin-top:20px">${tr('history')}</h3><div id="paymentHistory" class="small">${tr('noHistory')}</div></div></div>`;
  loadPaymentHistory(l.id);
 }
-async function loadPaymentHistory(loanId){if(!sb||!state.user)return;const {data}=await sb.from('payments').select('*').eq('loan_id',loanId).order('payment_date',{ascending:false});const el=document.getElementById('paymentHistory');if(!el)return;el.innerHTML=data?.length?data.map(p=>`<div class="file"><span>${dateFmt(p.payment_date)}</span><b>${money(p.amount)} · ${tr('paid')}</b></div>`).join(''):tr('noHistory')}
+async function loadPaymentHistory(loanId){
+ const l=state.loans.find(x=>x.id===loanId);if(!l)return;
+ const el=document.getElementById('paymentHistory');if(!el)return;
+ let paid=[];if(sb&&state.user){const {data,error}=await sb.from('payments').select('*').eq('loan_id',loanId).order('payment_date',{ascending:false});if(!error)paid=data||[]}
+ const paidMap=new Map(paid.map(p=>[String(p.payment_date).slice(0,10),p]));
+ const upcoming=paymentSchedule(l.amount,l.rate,l.months,l.next_payment,l.frequency);
+ const rows=[...paid.map(p=>({date:String(p.payment_date).slice(0,10),amount:p.amount,principal:p.principal,interest:p.interest,balance:null,status:'paid'})),...upcoming.filter(r=>!paidMap.has(r.date)).map(r=>({date:r.date,amount:r.payment,principal:r.principal,interest:r.interest,balance:r.balance,status:dueClass(r.date)==='overdue'?'overdue':'pending'}))];
+ rows.sort((a,b)=>String(a.date).localeCompare(String(b.date)));
+ el.innerHTML=rows.length?`<div class="tablewrap"><table><thead><tr><th>#</th><th>${tr('date')}</th><th>${tr('payment')}</th><th>${tr('principal')}</th><th>${tr('interest')}</th><th>${tr('balance')}</th><th>${tr('status')}</th></tr></thead><tbody>${rows.map((p,i)=>`<tr><td>${i+1}</td><td>${dateFmt(p.date)}</td><td class="money">${money(p.amount)}</td><td class="money">${money(p.principal)}</td><td class="money">${money(p.interest)}</td><td class="money">${p.balance==null?'—':money(p.balance)}</td><td>${statusBadge(p.status)}</td></tr>`).join('')}</tbody></table></div>`:tr('noHistory');
+}
 /* Make loan rows clickable on the name while preserving edit/delete buttons. */
 document.addEventListener('click',e=>{const el=e.target.closest('[data-loan-details]');if(el)openLoanDetails(el.dataset.loanDetails)});
 
